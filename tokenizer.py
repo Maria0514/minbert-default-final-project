@@ -802,10 +802,14 @@ class PreTrainedTokenizerBase(SpecialTokensMixin):
 
   @classmethod
   def from_pretrained(cls, pretrained_model_name_or_path: Union[str, os.PathLike], *init_inputs, **kwargs):
+    default_proxies = {
+      "http": "http://127.0.0.1:7890",
+      "https": "http://127.0.0.1:7890",
+    }
     cache_dir = kwargs.pop("cache_dir", None)
     force_download = kwargs.pop("force_download", False)
     resume_download = kwargs.pop("resume_download", False)
-    proxies = kwargs.pop("proxies", None)
+    proxies = kwargs.pop("proxies", default_proxies)
     local_files_only = kwargs.pop("local_files_only", False)
     use_auth_token = kwargs.pop("use_auth_token", None)
     revision = kwargs.pop("revision", None)

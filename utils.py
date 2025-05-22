@@ -14,6 +14,7 @@ from filelock import FileLock
 import importlib_metadata
 import torch
 import torch.nn as nn
+import fnmatch
 from torch import Tensor
 
 __version__ = "4.0.0"
@@ -120,8 +121,8 @@ def get_from_cache(
   url: str,
   cache_dir=None,
   force_download=False,
-  proxies=None,
-  etag_timeout=10,
+  proxies = None,
+  etag_timeout=100,
   resume_download=False,
   user_agent: Union[Dict, str, None] = None,
   use_auth_token: Union[bool, str, None] = None,
@@ -132,8 +133,11 @@ def get_from_cache(
   if isinstance(cache_dir, Path):
     cache_dir = str(cache_dir)
 
+  proxies = {
+    "http": "http://127.0.0.1:7897",
+    "https": "http://127.0.0.1:7897",
+  }
   os.makedirs(cache_dir, exist_ok=True)
-
   headers = {"user-agent": http_user_agent(user_agent)}
   if isinstance(use_auth_token, str):
     headers["authorization"] = "Bearer {}".format(use_auth_token)
@@ -147,7 +151,7 @@ def get_from_cache(
   etag = None
   if not local_files_only:
     try:
-      r = requests.head(url, headers=headers, allow_redirects=False, proxies=proxies, timeout=etag_timeout)
+      r = requests.head(url_to_download, headers=headers, allow_redirects=False, proxies=proxies, timeout=etag_timeout)
       r.raise_for_status()
       etag = r.headers.get("X-Linked-Etag") or r.headers.get("ETag")
       # We favor a custom header indicating the etag of the linked resource, and
