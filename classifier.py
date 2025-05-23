@@ -45,7 +45,11 @@ class BertSentimentClassifier(torch.nn.Module):
                 param.requires_grad = True
 
         ### TODO
-        raise NotImplementedError
+        # Add linear layer for sentiment classification
+        self.classifier = torch.nn.Linear(config.hidden_size, self.num_labels)
+        # Add dropout layer before classification
+        self.dropout = torch.nn.Dropout(config.hidden_dropout_prob)
+        # raise NotImplementedError
 
 
     def forward(self, input_ids, attention_mask):
@@ -54,7 +58,20 @@ class BertSentimentClassifier(torch.nn.Module):
         # HINT: you should consider what is the appropriate output to return given that
         # the training loop currently uses F.cross_entropy as the loss function.
         ### TODO
-        raise NotImplementedError
+        # Get BERT embeddings
+        outputs = self.bert(input_ids, attention_mask)
+        
+        # Get the [CLS] token embedding from pooler output
+        pooled_output = outputs['pooler_output']
+        
+        # Apply dropout
+        pooled_output = self.dropout(pooled_output)
+        
+        # Get logits through the classification layer
+        logits = self.classifier(pooled_output)
+        
+        return logits
+        # raise NotImplementedError
 
 
 
@@ -136,13 +153,13 @@ def load_data(filename, flag='train'):
     num_labels = {}
     data = []
     if flag == 'test':
-        with open(filename, 'r') as fp:
+        with open(filename, 'r', encoding='utf-8') as fp:  # 添加encoding='utf-8'
             for record in csv.DictReader(fp,delimiter = '\t'):
                 sent = record['sentence'].lower().strip()
                 sent_id = record['id'].lower().strip()
                 data.append((sent,sent_id))
     else:
-        with open(filename, 'r') as fp:
+        with open(filename, 'r', encoding='utf-8') as fp:  # 添加encoding='utf-8'
             for record in csv.DictReader(fp,delimiter = '\t'):
                 sent = record['sentence'].lower().strip()
                 sent_id = record['id'].lower().strip()
