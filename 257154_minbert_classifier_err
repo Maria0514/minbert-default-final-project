@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/nfsshare/home/yejiaqi/minbert-default-final-project/classifier.py", line 1, in <module>
+    import time, random, numpy as np, argparse, sys, re, os
+ModuleNotFoundError: No module named 'numpy'

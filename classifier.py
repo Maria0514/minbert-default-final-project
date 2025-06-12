@@ -35,7 +35,9 @@ class BertSentimentClassifier(torch.nn.Module):
     def __init__(self, config):
         super(BertSentimentClassifier, self).__init__()
         self.num_labels = config.num_labels
-        self.bert = BertModel.from_pretrained('bert-base-uncased')
+        # self.bert = BertModel.from_pretrained('bert-base-uncased')
+        # Load locally
+        self.bert = BertModel.from_pretrained('./bert-base-uncased', local_files_only=True)
 
         # Pretrain mode does not require updating bert paramters.
         for param in self.bert.parameters():
@@ -79,7 +81,10 @@ class SentimentDataset(Dataset):
     def __init__(self, dataset, args):
         self.dataset = dataset
         self.p = args
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        # self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        # use local pretrained model path
+        self.tokenizer = BertTokenizer.from_pretrained('./bert-base-uncased/')
+
 
     def __len__(self):
         return len(self.dataset)
@@ -117,7 +122,9 @@ class SentimentTestDataset(Dataset):
     def __init__(self, dataset, args):
         self.dataset = dataset
         self.p = args
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        # self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        # Load locally
+        self.tokenizer = BertTokenizer.from_pretrained('./bert-base-uncased')
 
     def __len__(self):
         return len(self.dataset)

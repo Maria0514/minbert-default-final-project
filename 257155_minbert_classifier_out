@@ -1,0 +1,90 @@
+Sender: LSF System <lsfadmin@gpu06>
+Subject: Job 257155: <minbert_train> in cluster <cluster_lsf> Done
+
+Job <minbert_train> was submitted from host <mgtgpu02> by user <yejiaqi> in cluster <cluster_lsf> at Thu Jun 12 13:59:07 2025
+Job was executed on host(s) <4*gpu06>, in queue <gpu>, as user <yejiaqi> in cluster <cluster_lsf> at Thu Jun 12 13:59:07 2025
+</nfsshare/home/yejiaqi/> was used as the home directory.
+</nfsshare/home/yejiaqi/minbert-default-final-project> was used as the working directory.
+Started at Thu Jun 12 13:59:07 2025
+Terminated at Thu Jun 12 15:04:09 2025
+Results reported at Thu Jun 12 15:04:09 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#!/bin/bash
+#BSUB -J minbert_train
+#BSUB -q gpu
+#BSUB -n 4
+#BSUB -gpu "num=4:mode=exclusive_process"
+#BSUB -o "%J_minbert_classifier_out"
+#BSUB -e "%J_minbert_classifier_err"
+#BSUB -cwd /nfsshare/home/yejiaqi/minbert-default-final-project
+# 初始化共享路径下的 Conda（但是这条好像提交作业BSUB的时候给报错了）
+# conda activate cs224n_dfp
+# 进入项目目录
+cd /nfsshare/home/yejiaqi/minbert-default-final-project
+# 在 `python3 classifier.py` 前添加以下命令
+echo "当前工作目录: $(pwd)" >> %J.out
+ls -l >> %J.out  # 查看目录内容
+# 运行训练
+python3 /nfsshare/home/yejiaqi/minbert-default-final-project/classifier.py --option finetune --epochs 5 --lr 2e-5 --batch_size 32 --hidden_dropout_prob 0.1
+
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   91769.35 sec.
+    Max Memory :                                 13578 MB
+    Average Memory :                             8390.96 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              4
+    Max Threads :                                57
+    Run time :                                   3886 sec.
+    Turnaround time :                            3902 sec.
+
+The output (if any) follows:
+
+Training Sentiment Classifier on SST...
+load 8544 data from data/ids-sst-train.csv
+load 1101 data from data/ids-sst-dev.csv
+save the model to sst-classifier.pt
+Epoch 0: train loss :: 1.258, train acc :: 0.594, dev acc :: 0.489
+save the model to sst-classifier.pt
+Epoch 1: train loss :: 0.975, train acc :: 0.734, dev acc :: 0.536
+Epoch 2: train loss :: 0.767, train acc :: 0.772, dev acc :: 0.502
+Epoch 3: train loss :: 0.564, train acc :: 0.864, dev acc :: 0.506
+Epoch 4: train loss :: 0.388, train acc :: 0.888, dev acc :: 0.493
+Evaluating on SST...
+load model from sst-classifier.pt
+load 1101 data from data/ids-sst-dev.csv
+DONE DEV
+DONE Test
+dev acc :: 0.536
+Training Sentiment Classifier on cfimdb...
+load 1707 data from data/ids-cfimdb-train.csv
+load 245 data from data/ids-cfimdb-dev.csv
+save the model to cfimdb-classifier.pt
+Epoch 0: train loss :: 0.310, train acc :: 0.986, dev acc :: 0.963
+Epoch 1: train loss :: 0.053, train acc :: 0.996, dev acc :: 0.955
+Epoch 2: train loss :: 0.050, train acc :: 0.995, dev acc :: 0.947
+Epoch 3: train loss :: 0.020, train acc :: 0.998, dev acc :: 0.951
+Epoch 4: train loss :: 0.013, train acc :: 0.999, dev acc :: 0.951
+Evaluating on cfimdb...
+load model from cfimdb-classifier.pt
+load 245 data from data/ids-cfimdb-dev.csv
+DONE DEV
+DONE Test
+dev acc :: 0.963
+
+
+PS:
+
+Read file <257155_minbert_classifier_err> for stderr output of this job.
+

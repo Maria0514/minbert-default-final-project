@@ -133,10 +133,10 @@ def get_from_cache(
   if isinstance(cache_dir, Path):
     cache_dir = str(cache_dir)
 
-  proxies = {
-    "http": "http://127.0.0.1:7897",
-    "https": "http://127.0.0.1:7897",
-  }
+  # proxies = {
+  #   "http": "http://127.0.0.1:7897",
+  #   "https": "http://127.0.0.1:7897",
+  # }
   os.makedirs(cache_dir, exist_ok=True)
   headers = {"user-agent": http_user_agent(user_agent)}
   if isinstance(use_auth_token, str):
