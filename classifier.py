@@ -13,6 +13,9 @@ from bert import BertModel
 from optimizer import AdamW
 from tqdm import tqdm
 
+from trainer import Trainer
+
+import torch.amp
 
 TQDM_DISABLE=False
 # fix the random seed
@@ -252,7 +255,8 @@ def save_model(model, optimizer, args, config, filepath):
 
 
 def train(args):
-    device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    use_amp = torch.cuda.is_available()
     # Load data
     # Create the data and its corresponding datasets and dataloader
     train_data, num_labels = load_data(args.train, 'train')
@@ -277,50 +281,24 @@ def train(args):
 
     model = BertSentimentClassifier(config)
     model = model.to(device)
-
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
+    trainer = Trainer(model, optimizer, device, use_amp=use_amp)
     best_dev_acc = 0
-
-    # Run for the specified number of epochs
     for epoch in range(args.epochs):
-        model.train()
-        train_loss = 0
-        num_batches = 0
-        for batch in tqdm(train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            b_ids, b_mask, b_labels = (batch['token_ids'],
-                                       batch['attention_mask'], batch['labels'])
-
-            b_ids = b_ids.to(device)
-            b_mask = b_mask.to(device)
-            b_labels = b_labels.to(device)
-
-            optimizer.zero_grad()
-            logits = model(b_ids, b_mask)
-            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item()
-            num_batches += 1
-
-        train_loss = train_loss / (num_batches)
-
+        train_loss = trainer.train_epoch(train_dataloader, args.batch_size)
         train_acc, train_f1, *_  = model_eval(train_dataloader, model, device)
         dev_acc, dev_f1, *_ = model_eval(dev_dataloader, model, device)
-
         if dev_acc > best_dev_acc:
             best_dev_acc = dev_acc
             save_model(model, optimizer, args, config, args.filepath)
-
         print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
 
 def test(args):
     with torch.no_grad():
-        device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-        saved = torch.load(args.filepath)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        saved = torch.load(args.filepath, weights_only=False)
         config = saved['model_config']
         model = BertSentimentClassifier(config)
         model.load_state_dict(saved['model'])

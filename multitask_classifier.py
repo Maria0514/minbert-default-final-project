@@ -35,67 +35,47 @@ N_SENTIMENT_CLASSES = 5
 
 class MultitaskBERT(nn.Module):
     '''
-    This module should use BERT for 3 tasks:
-
+    This module uses BERT for 3 tasks:
     - Sentiment classification (predict_sentiment)
     - Paraphrase detection (predict_paraphrase)
     - Semantic Textual Similarity (predict_similarity)
     '''
     def __init__(self, config):
         super(MultitaskBERT, self).__init__()
-        # You will want to add layers here to perform the downstream tasks.
-        # Pretrain mode does not require updating bert paramters.
-        # self.bert = BertModel.from_pretrained('bert-base-uncased')
-        # Load locally here:
         self.bert = BertModel.from_pretrained('./bert-base-uncased', local_files_only=True)
         for param in self.bert.parameters():
-            if config.option == 'pretrain':
-                param.requires_grad = False
-            elif config.option == 'finetune':
-                param.requires_grad = True
-        ### TODO
-        raise NotImplementedError
-
+            param.requires_grad = (config.option == 'finetune')
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.sentiment_classifier = nn.Linear(config.hidden_size, 5)
+        self.paraphrase_classifier = nn.Linear(config.hidden_size * 2, 1)
+        self.similarity_regressor = nn.Linear(config.hidden_size * 2, 1)
 
     def forward(self, input_ids, attention_mask):
-        'Takes a batch of sentences and produces embeddings for them.'
-        # The final BERT embedding is the hidden state of [CLS] token (the first token)
-        # Here, you can start by just returning the embeddings straight from BERT.
-        # When thinking of improvements, you can later try modifying this
-        # (e.g., by adding other layers).
-        ### TODO
-        raise NotImplementedError
-
+        outputs = self.bert(input_ids, attention_mask)
+        pooled = outputs['pooler_output']
+        return pooled
 
     def predict_sentiment(self, input_ids, attention_mask):
-        '''Given a batch of sentences, outputs logits for classifying sentiment.
-        There are 5 sentiment classes:
-        (0 - negative, 1- somewhat negative, 2- neutral, 3- somewhat positive, 4- positive)
-        Thus, your output should contain 5 logits for each sentence.
-        '''
-        ### TODO
-        raise NotImplementedError
+        pooled = self.forward(input_ids, attention_mask)
+        pooled = self.dropout(pooled)
+        logits = self.sentiment_classifier(pooled)
+        return logits
 
+    def predict_paraphrase(self, input_ids_1, attention_mask_1, input_ids_2, attention_mask_2):
+        pooled1 = self.forward(input_ids_1, attention_mask_1)
+        pooled2 = self.forward(input_ids_2, attention_mask_2)
+        pair = torch.cat([pooled1, pooled2], dim=1)
+        pair = self.dropout(pair)
+        logit = self.paraphrase_classifier(pair)
+        return logit.squeeze(-1)
 
-    def predict_paraphrase(self,
-                           input_ids_1, attention_mask_1,
-                           input_ids_2, attention_mask_2):
-        '''Given a batch of pairs of sentences, outputs a single logit for predicting whether they are paraphrases.
-        Note that your output should be unnormalized (a logit); it will be passed to the sigmoid function
-        during evaluation, and handled as a logit by the appropriate loss function.
-        '''
-        ### TODO
-        raise NotImplementedError
-
-
-    def predict_similarity(self,
-                           input_ids_1, attention_mask_1,
-                           input_ids_2, attention_mask_2):
-        '''Given a batch of pairs of sentences, outputs a single logit corresponding to how similar they are.
-        Note that your output should be unnormalized (a logit).
-        '''
-        ### TODO
-        raise NotImplementedError
+    def predict_similarity(self, input_ids_1, attention_mask_1, input_ids_2, attention_mask_2):
+        pooled1 = self.forward(input_ids_1, attention_mask_1)
+        pooled2 = self.forward(input_ids_2, attention_mask_2)
+        pair = torch.cat([pooled1, pooled2], dim=1)
+        pair = self.dropout(pair)
+        score = self.similarity_regressor(pair)
+        return score.squeeze(-1)
 
 
 
@@ -117,7 +97,7 @@ def save_model(model, optimizer, args, config, filepath):
 
 ## Currently only trains on sst dataset
 def train_multitask(args):
-    device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Load data
     # Create the data and its corresponding datasets and dataloader
     sst_train_data, num_labels,para_train_data, sts_train_data = load_multitask_data(args.sst_train,args.para_train,args.sts_train, split ='train')
@@ -126,10 +106,25 @@ def train_multitask(args):
     sst_train_data = SentenceClassificationDataset(sst_train_data, args)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
 
-    sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
-                                      collate_fn=sst_train_data.collate_fn)
-    sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=args.batch_size,
-                                    collate_fn=sst_dev_data.collate_fn)
+    NUM_WORKERS = 8  # 可根据CPU核数调整
+    PIN_MEMORY = True
+
+    sst_train_dataloader = DataLoader(
+        sst_train_data,
+        shuffle=True,
+        batch_size=args.batch_size,
+        collate_fn=sst_train_data.collate_fn,
+        num_workers=NUM_WORKERS,
+        pin_memory=PIN_MEMORY
+    )
+    sst_dev_dataloader = DataLoader(
+        sst_dev_data,
+        shuffle=False,
+        batch_size=args.batch_size,
+        collate_fn=sst_dev_data.collate_fn,
+        num_workers=NUM_WORKERS,
+        pin_memory=PIN_MEMORY
+    )
 
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,
@@ -147,6 +142,8 @@ def train_multitask(args):
     optimizer = AdamW(model.parameters(), lr=lr)
     best_dev_acc = 0
 
+    scaler = torch.cuda.amp.GradScaler()  # 混合精度训练scaler
+
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
@@ -161,11 +158,13 @@ def train_multitask(args):
             b_labels = b_labels.to(device)
 
             optimizer.zero_grad()
-            logits = model.predict_sentiment(b_ids, b_mask)
-            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            with torch.cuda.amp.autocast():
+                logits = model.predict_sentiment(b_ids, b_mask)
+                loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
 
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             train_loss += loss.item()
             num_batches += 1
@@ -185,7 +184,7 @@ def train_multitask(args):
 
 def test_model(args):
     with torch.no_grad():
-        device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         saved = torch.load(args.filepath)
         config = saved['model_config']
 

@@ -16,6 +16,7 @@ explicitly aside from model_eval_multitask.
 '''
 
 import torch
+import torch.amp
 from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report, f1_score, recall_score, accuracy_score
 from tqdm import tqdm
@@ -35,22 +36,24 @@ def model_eval_sst(dataloader, model, device):
     y_pred = []
     sents = []
     sent_ids = []
-    for step, batch in enumerate(tqdm(dataloader, desc=f'eval', disable=TQDM_DISABLE)):
-        b_ids, b_mask, b_labels, b_sents, b_sent_ids = batch['token_ids'],batch['attention_mask'],  \
+    with torch.no_grad():
+        for step, batch in enumerate(tqdm(dataloader, desc=f'eval', disable=TQDM_DISABLE)):
+            b_ids, b_mask, b_labels, b_sents, b_sent_ids = batch['token_ids'],batch['attention_mask'],  \
                                                         batch['labels'], batch['sents'], batch['sent_ids']
 
-        b_ids = b_ids.to(device)
-        b_mask = b_mask.to(device)
+            b_ids = b_ids.to(device)
+            b_mask = b_mask.to(device)
 
-        logits = model.predict_sentiment(b_ids, b_mask)
-        logits = logits.detach().cpu().numpy()
-        preds = np.argmax(logits, axis=1).flatten()
+            with torch.amp.autocast(device_type='cuda') if torch.cuda.is_available() else torch.cpu.amp.autocast(device_type='cpu'):
+                logits = model.predict_sentiment(b_ids, b_mask)
+            logits = logits.detach().cpu().numpy()
+            preds = np.argmax(logits, axis=1).flatten()
 
-        b_labels = b_labels.flatten()
-        y_true.extend(b_labels)
-        y_pred.extend(preds)
-        sents.extend(b_sents)
-        sent_ids.extend(b_sent_ids)
+            b_labels = b_labels.flatten()
+            y_true.extend(b_labels)
+            y_pred.extend(preds)
+            sents.extend(b_sents)
+            sent_ids.extend(b_sent_ids)
 
     f1 = f1_score(y_true, y_pred, average='macro')
     acc = accuracy_score(y_true, y_pred)
@@ -82,7 +85,8 @@ def model_eval_multitask(sentiment_dataloader,
             b_ids2 = b_ids2.to(device)
             b_mask2 = b_mask2.to(device)
 
-            logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
+            with torch.amp.autocast(device_type='cuda') if torch.cuda.is_available() else torch.cpu.amp.autocast(device_type='cpu'):
+                logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
             y_hat = logits.sigmoid().round().flatten().cpu().numpy()
             b_labels = b_labels.flatten().cpu().numpy()
 
@@ -110,7 +114,8 @@ def model_eval_multitask(sentiment_dataloader,
             b_ids2 = b_ids2.to(device)
             b_mask2 = b_mask2.to(device)
 
-            logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
+            with torch.amp.autocast(device_type='cuda') if torch.cuda.is_available() else torch.cpu.amp.autocast(device_type='cpu'):
+                logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
             y_hat = logits.flatten().cpu().numpy()
             b_labels = b_labels.flatten().cpu().numpy()
 
@@ -132,7 +137,8 @@ def model_eval_multitask(sentiment_dataloader,
             b_ids = b_ids.to(device)
             b_mask = b_mask.to(device)
 
-            logits = model.predict_sentiment(b_ids, b_mask)
+            with torch.amp.autocast(device_type='cuda') if torch.cuda.is_available() else torch.cpu.amp.autocast(device_type='cpu'):
+                logits = model.predict_sentiment(b_ids, b_mask)
             y_hat = logits.argmax(dim=-1).flatten().cpu().numpy()
             b_labels = b_labels.flatten().cpu().numpy()
 
@@ -174,7 +180,8 @@ def model_eval_test_multitask(sentiment_dataloader,
             b_ids2 = b_ids2.to(device)
             b_mask2 = b_mask2.to(device)
 
-            logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
+            with torch.amp.autocast(device_type='cuda') if torch.cuda.is_available() else torch.cpu.amp.autocast(device_type='cpu'):
+                logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
             y_hat = logits.sigmoid().round().flatten().cpu().numpy()
 
             para_y_pred.extend(y_hat)
@@ -198,7 +205,8 @@ def model_eval_test_multitask(sentiment_dataloader,
             b_ids2 = b_ids2.to(device)
             b_mask2 = b_mask2.to(device)
 
-            logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
+            with torch.amp.autocast(device_type='cuda') if torch.cuda.is_available() else torch.cpu.amp.autocast(device_type='cpu'):
+                logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
             y_hat = logits.flatten().cpu().numpy()
 
             sts_y_pred.extend(y_hat)
@@ -215,7 +223,8 @@ def model_eval_test_multitask(sentiment_dataloader,
             b_ids = b_ids.to(device)
             b_mask = b_mask.to(device)
 
-            logits = model.predict_sentiment(b_ids, b_mask)
+            with torch.amp.autocast(device_type='cuda') if torch.cuda.is_available() else torch.cpu.amp.autocast(device_type='cpu'):
+                logits = model.predict_sentiment(b_ids, b_mask)
             y_hat = logits.argmax(dim=-1).flatten().cpu().numpy()
 
             sst_y_pred.extend(y_hat)
