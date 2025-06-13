@@ -99,29 +99,64 @@ def save_model(model, optimizer, args, config, filepath):
 def train_multitask(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Load data
-    # Create the data and its corresponding datasets and dataloader
-    sst_train_data, num_labels,para_train_data, sts_train_data = load_multitask_data(args.sst_train,args.para_train,args.sts_train, split ='train')
-    sst_dev_data, num_labels,para_dev_data, sts_dev_data = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, split ='train')
+    sst_train_data, num_labels, para_train_data, sts_train_data = load_multitask_data(args.sst_train, args.para_train, args.sts_train, split='train')
+    sst_dev_data, num_labels, para_dev_data, sts_dev_data = load_multitask_data(args.sst_dev, args.para_dev, args.sts_dev, split='train')
 
-    sst_train_data = SentenceClassificationDataset(sst_train_data, args)
-    sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
+    sst_train_dataset = SentenceClassificationDataset(sst_train_data, args)
+    para_train_dataset = SentencePairDataset(para_train_data, args)
+    sts_train_dataset = SentencePairDataset(sts_train_data, args, isRegression=True)
+    sst_dev_dataset = SentenceClassificationDataset(sst_dev_data, args)
+    para_dev_dataset = SentencePairDataset(para_dev_data, args)
+    sts_dev_dataset = SentencePairDataset(sts_dev_data, args, isRegression=True)
 
-    NUM_WORKERS = 8  # 可根据CPU核数调整
+    NUM_WORKERS = 4
     PIN_MEMORY = True
 
     sst_train_dataloader = DataLoader(
-        sst_train_data,
+        sst_train_dataset,
         shuffle=True,
         batch_size=args.batch_size,
-        collate_fn=sst_train_data.collate_fn,
+        collate_fn=sst_train_dataset.collate_fn,
+        num_workers=NUM_WORKERS,
+        pin_memory=PIN_MEMORY
+    )
+    para_train_dataloader = DataLoader(
+        para_train_dataset,
+        shuffle=True,
+        batch_size=args.batch_size,
+        collate_fn=para_train_dataset.collate_fn,
+        num_workers=NUM_WORKERS,
+        pin_memory=PIN_MEMORY
+    )
+    sts_train_dataloader = DataLoader(
+        sts_train_dataset,
+        shuffle=True,
+        batch_size=args.batch_size,
+        collate_fn=sts_train_dataset.collate_fn,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY
     )
     sst_dev_dataloader = DataLoader(
-        sst_dev_data,
+        sst_dev_dataset,
         shuffle=False,
         batch_size=args.batch_size,
-        collate_fn=sst_dev_data.collate_fn,
+        collate_fn=sst_dev_dataset.collate_fn,
+        num_workers=NUM_WORKERS,
+        pin_memory=PIN_MEMORY
+    )
+    para_dev_dataloader = DataLoader(
+        para_dev_dataset,
+        shuffle=False,
+        batch_size=args.batch_size,
+        collate_fn=para_dev_dataset.collate_fn,
+        num_workers=NUM_WORKERS,
+        pin_memory=PIN_MEMORY
+    )
+    sts_dev_dataloader = DataLoader(
+        sts_dev_dataset,
+        shuffle=False,
+        batch_size=args.batch_size,
+        collate_fn=sts_dev_dataset.collate_fn,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY
     )
@@ -132,52 +167,59 @@ def train_multitask(args):
               'hidden_size': 768,
               'data_dir': '.',
               'option': args.option}
-
     config = SimpleNamespace(**config)
-
     model = MultitaskBERT(config)
     model = model.to(device)
 
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
     best_dev_acc = 0
+    scaler = torch.cuda.amp.GradScaler()
 
-    scaler = torch.cuda.amp.GradScaler()  # 混合精度训练scaler
-
-    # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
         train_loss = 0
         num_batches = 0
-        for batch in tqdm(sst_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            b_ids, b_mask, b_labels = (batch['token_ids'],
-                                       batch['attention_mask'], batch['labels'])
-
-            b_ids = b_ids.to(device)
-            b_mask = b_mask.to(device)
-            b_labels = b_labels.to(device)
-
+        # zip三个dataloader，取最短长度
+        for sst_batch, para_batch, sts_batch in zip(sst_train_dataloader, para_train_dataloader, sts_train_dataloader):
             optimizer.zero_grad()
+            # SST
+            b_ids = sst_batch['token_ids'].to(device)
+            b_mask = sst_batch['attention_mask'].to(device)
+            b_labels = sst_batch['labels'].to(device)
+            # Quora
+            b1 = para_batch['token_ids_1'].to(device)
+            m1 = para_batch['attention_mask_1'].to(device)
+            b2 = para_batch['token_ids_2'].to(device)
+            m2 = para_batch['attention_mask_2'].to(device)
+            para_labels = para_batch['labels'].float().to(device)
+            # STS
+            s1 = sts_batch['token_ids_1'].to(device)
+            sm1 = sts_batch['attention_mask_1'].to(device)
+            s2 = sts_batch['token_ids_2'].to(device)
+            sm2 = sts_batch['attention_mask_2'].to(device)
+            sts_labels = sts_batch['labels'].float().to(device)
             with torch.cuda.amp.autocast():
-                logits = model.predict_sentiment(b_ids, b_mask)
-                loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-
+                sst_logits = model.predict_sentiment(b_ids, b_mask)
+                para_logits = model.predict_paraphrase(b1, m1, b2, m2)
+                sts_logits = model.predict_similarity(s1, sm1, s2, sm2)
+                sst_loss = F.cross_entropy(sst_logits, b_labels.view(-1), reduction='mean')
+                para_loss = F.binary_cross_entropy_with_logits(para_logits, para_labels)
+                sts_loss = F.mse_loss(sts_logits, sts_labels)
+                # 损失加权，样本量大的任务权重可适当调低
+                loss = sst_loss + para_loss + sts_loss
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-
             train_loss += loss.item()
             num_batches += 1
-
         train_loss = train_loss / (num_batches)
-
+        # 评估
         train_acc, train_f1, *_ = model_eval_sst(sst_train_dataloader, model, device)
         dev_acc, dev_f1, *_ = model_eval_sst(sst_dev_dataloader, model, device)
-
         if dev_acc > best_dev_acc:
             best_dev_acc = dev_acc
             save_model(model, optimizer, args, config, args.filepath)
-
         print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
 
