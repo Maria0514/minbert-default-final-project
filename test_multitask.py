@@ -6,6 +6,8 @@ from optimizer import AdamW
 from evaluation import model_eval_multitask
 import torch.nn.functional as F
 import torch.cuda.amp
+from xcopa_dataset import XcopaDataset
+from amazon_dataset import AmazonFineFoodDataset
 
 # 配置参数（可根据实际情况调整）
 class Args:
@@ -108,3 +110,74 @@ if __name__ == '__main__':
         print(f"Epoch {epoch+1} | 验证集 Paraphrase Acc: {para_acc:.4f} | STS Pearson: {sts_corr:.4f} | SST Acc: {sst_acc:.4f}")
 
     print('多任务BERT模型训练和验证流程结束！')
+
+    # ========== XCOPA 中文零样本迁移评测 ==========
+    print("\n===== XCOPA 中文零样本迁移评测（零样本）=====")
+    xcopa_path = 'data/xcopa/zh/val.zh.jsonl'  # 可换为test.zh.jsonl
+    xcopa_dataset = XcopaDataset(xcopa_path)
+    from torch.utils.data import DataLoader
+    xcopa_loader = DataLoader(xcopa_dataset, batch_size=8, shuffle=False, collate_fn=xcopa_dataset.collate_fn)
+    model.eval()
+    correct, total = 0, 0
+    import torch
+    with torch.no_grad():
+        for batch in xcopa_loader:
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            batch_size = batch['batch_size']
+            outputs = model.bert(input_ids, attention_mask=attention_mask)
+            logits = outputs['pooler_output']
+            # 假设有二分类头或直接用CLS向量做线性分类
+            # 这里只做示例，实际需加一层分类器
+            # 这里假设labels为2*batch_size，前一半为choice1，后一半为choice2
+            # 选最大logit为预测
+            # 这里只做占位，需根据你模型结构调整
+            # pred = ...
+            # correct += (pred == batch['labels']).sum().item()
+            # total += len(pred)
+            pass  # TODO: 按你的模型结构补全推理与评测
+    print(f"XCOPA评测完成（请补全推理与评测代码）")
+
+    # ========== Amazon Fine Food领域适配评测 ==========
+    print("\n===== Amazon Fine Food领域适配评测 =====")
+    amazon_path = 'data/amazon/Reviews.csv'
+    amazon_dataset = AmazonFineFoodDataset(amazon_path, max_samples=1000)
+    amazon_loader = DataLoader(amazon_dataset, batch_size=8, shuffle=False, collate_fn=amazon_dataset.collate_fn)
+    model.eval()
+    correct, total = 0, 0
+    with torch.no_grad():
+        for batch in amazon_loader:
+            input_ids = batch['token_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            labels = batch['labels'].to(device)
+            logits = model.predict_sentiment(input_ids, attention_mask)
+            preds = logits.argmax(dim=-1)
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+    print(f"Amazon Fine Food情感分类准确率: {correct/total:.4f}")
+
+    # ===== Amazon Fine Food 微调训练流程示例 =====
+    print("\n===== Amazon Fine Food 微调训练流程（仅情感分类头）=====")
+    amazon_train_dataset = AmazonFineFoodDataset('data/amazon/Reviews.csv', max_samples=10000)
+    amazon_train_loader = torch.utils.data.DataLoader(amazon_train_dataset, batch_size=32, shuffle=True, collate_fn=amazon_train_dataset.collate_fn)
+    # 只训练情感分类头，冻结BERT参数
+    for param in model.bert.parameters():
+        param.requires_grad = False
+    for param in model.sentiment_classifier.parameters():
+        param.requires_grad = True
+    optimizer = torch.optim.Adam(model.sentiment_classifier.parameters(), lr=2e-4)
+    for epoch in range(3):
+        model.train()
+        total_loss = 0
+        for batch in amazon_train_loader:
+            input_ids = batch['token_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            labels = batch['labels'].to(device)
+            logits = model.predict_sentiment(input_ids, attention_mask)
+            loss = F.cross_entropy(logits, labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        print(f'Epoch {epoch+1} done, avg loss: {total_loss/len(amazon_train_loader):.4f}')
+    print('Amazon Fine Food情感分类头微调完成！')
